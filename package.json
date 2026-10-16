@@ -1,0 +1,12 @@
+{
+  "name": "github-push-reconciler",
+  "version": "0.1.0",
+  "description": "Never lose a GitHub push: signed webhooks, coalesced deploys and a reconciler that replays missed events.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "simulate": "node scripts/simulate.ts"
+  }
+}
