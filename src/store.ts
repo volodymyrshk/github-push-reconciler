@@ -10,6 +10,8 @@ export type RepoState = {
   nextAttemptAt: number;     // epoch ms; 0 = now
   deadLetter: boolean;       // gave up after maxAttempts; a human must look
   etag: string;              // last ETag from GitHub for the branch HEAD
+  generation: number;        // bumped every time something marks the repo dirty
+  lastCheckedAt: number;     // epoch ms of the reconciler's last look; oldest first
 };
 
 export interface Store {
@@ -36,5 +38,11 @@ export class MemoryStore implements Store {
 export function track(store: Store, repo: string, branch: string): void {
   if (store.get(repo)) return;
   store.put({ repo, branch, lastDeployedSha: "", dirty: true, dirtyReason: "initial", attempts: 0,
-    nextAttemptAt: 0, deadLetter: false, etag: "" });
+    nextAttemptAt: 0, deadLetter: false, etag: "", generation: 1, lastCheckedAt: 0 });
+}
+
+// Mark a repo dirty. Bumping the generation lets a worker that started earlier see that new work
+// arrived while it was busy. In a database: UPDATE repos SET dirty = true, generation = generation + 1.
+export function markDirty(state: RepoState, reason: string): RepoState {
+  return { ...state, dirty: true, dirtyReason: reason, nextAttemptAt: 0, generation: state.generation + 1 };
 }

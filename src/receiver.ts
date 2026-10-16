@@ -1,5 +1,5 @@
 import { verifySignature } from "./signature.ts";
-import type { Store } from "./store.ts";
+import { markDirty, type Store } from "./store.ts";
 
 export type WebhookRequest = { headers: Record<string, string | undefined>; rawBody: Buffer | string };
 export type WebhookResult = { status: number; outcome: string };
@@ -23,15 +23,14 @@ export function receivePush(store: Store, secret: string, req: WebhookRequest): 
   } catch {
     return { status: 400, outcome: "bad_json" };
   }
+  // Recording the delivery and marking the repo dirty happen together with no await in between.
+  // In a database, do both in one transaction (insert the delivery ID with a unique key, then update).
   const repo = payload.repository?.full_name ?? "";
   const state = store.get(repo);
   store.recordDelivery(delivery);
   if (!state) return { status: 202, outcome: "untracked_repo" };
   if (payload.ref !== `refs/heads/${state.branch}`) return { status: 202, outcome: "other_branch" };
 
-  state.dirty = true;
-  state.dirtyReason = "webhook";
-  state.nextAttemptAt = 0;
-  store.put(state);
+  store.put(markDirty(state, "webhook"));
   return { status: 202, outcome: "queued" };
 }

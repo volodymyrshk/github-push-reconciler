@@ -114,3 +114,46 @@ test("a GitHub error during deploy counts as a failed attempt, not a lost event"
   await runWorker(store, gh, deploy, 10, { baseDelayMs: 10 });
   assert.deepEqual(deploys, ["acme/docs@a1"]);
 });
+
+test("a webhook that arrives during a deploy is not erased by the worker", async () => {
+  const { store, gh, deploys } = setup();
+  let inject = true;
+  const deploy = async (repo: string, sha: string) => {
+    deploys.push(`${repo}@${sha}`);
+    if (inject) {                       // a new push and its webhook land mid-deploy
+      inject = false;
+      gh.push("acme/docs", "mid");
+      receivePush(store, SECRET, signed(pushBody("acme/docs", "mid"), "during"));
+    }
+  };
+  await runWorker(store, gh, deploy, 0);
+  assert.equal(store.get("acme/docs")?.dirty, true);
+  await runWorker(store, gh, deploy, 1);
+  assert.deepEqual(deploys, ["acme/docs@a1", "acme/docs@mid"]);
+  assert.equal(store.get("acme/docs")?.dirty, false);
+});
+
+test("a webhook that arrives during a reconciler check is not erased", async () => {
+  const { store, gh, deploy } = setup();
+  await runWorker(store, gh, deploy, 0);
+  const real = gh.getHead.bind(gh);
+  gh.getHead = async (repo, branch, etag) => {
+    gh.push("acme/docs", "mid");
+    receivePush(store, SECRET, signed(pushBody("acme/docs", "mid"), "during-sweep"));
+    return real(repo, branch, etag);
+  };
+  await reconcile(store, gh, 5);
+  assert.equal(store.get("acme/docs")?.dirty, true);
+});
+
+test("a request budget smaller than the repo count still covers every repo across sweeps", async () => {
+  const store = new MemoryStore();
+  const gh = new FakeGitHub();
+  for (let i = 0; i < 5; i++) { track(store, `acme/r${i}`, "main"); gh.push(`acme/r${i}`, "s0"); }
+  await runWorker(store, gh, async () => {}, 0);
+  const seen = new Set<string>();
+  const real = gh.getHead.bind(gh);
+  gh.getHead = async (repo, branch, etag) => { seen.add(repo); return real(repo, branch, etag); };
+  for (let sweep = 1; sweep <= 3; sweep++) await reconcile(store, gh, sweep * 1000, 2);
+  assert.equal(seen.size, 5);
+});

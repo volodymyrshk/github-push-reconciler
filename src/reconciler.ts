@@ -1,5 +1,5 @@
 import type { GitHubHeads } from "./github.ts";
-import type { Store } from "./store.ts";
+import { markDirty, type Store } from "./store.ts";
 
 export type SweepReport = { checked: number; replayed: string[]; notModified: number; errors: number;
   rateLimitedUntil: number };
@@ -14,29 +14,28 @@ export async function reconcile(store: Store, github: GitHubHeads, now: number,
     report.rateLimitedUntil = pausedUntil;
     return report;
   }
-  for (const state of store.all()) {
-    if (state.dirty || state.deadLetter) continue;   // already queued or waiting for a human
+  // Oldest-checked first, so a request budget smaller than the repo count still covers every repo over several sweeps.
+  const due = store.all().filter((s) => !s.dirty && !s.deadLetter).sort((a, b) => a.lastCheckedAt - b.lastCheckedAt);
+  for (const snapshot of due) {
     if (report.checked >= maxRequests) break;
     report.checked += 1;
-    const head = await github.getHead(state.repo, state.branch, state.etag);
-    if (head.kind === "not_modified") {
-      report.notModified += 1;
-      continue;
-    }
+    const head = await github.getHead(snapshot.repo, snapshot.branch, snapshot.etag);
     if (head.kind === "rate_limited") {
       report.rateLimitedUntil = head.resetAt;
       break;
     }
-    if (head.kind === "error") {
-      report.errors += 1;
-      continue;
-    }
-    state.etag = head.etag;
-    if (head.sha !== state.lastDeployedSha) {
-      state.dirty = true;
-      state.dirtyReason = "reconciler";
-      state.nextAttemptAt = 0;
-      report.replayed.push(`${state.repo}@${head.sha}`);
+    const state = store.get(snapshot.repo);   // re-read: a webhook may have changed it during the await
+    if (!state) continue;
+    state.lastCheckedAt = now;
+    if (head.kind === "not_modified") report.notModified += 1;
+    else if (head.kind === "error") report.errors += 1;
+    else {
+      state.etag = head.etag;
+      if (head.sha !== state.lastDeployedSha && !state.dirty) {
+        store.put(markDirty(state, "reconciler"));
+        report.replayed.push(`${state.repo}@${head.sha}`);
+        continue;
+      }
     }
     store.put(state);
   }
