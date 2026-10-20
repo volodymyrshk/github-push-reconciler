@@ -1,7 +1,5 @@
 # github-push-reconciler
 
-[![test](https://github.com/volodymyrshk/github-push-reconciler/actions/workflows/test.yml/badge.svg)](https://github.com/volodymyrshk/github-push-reconciler/actions/workflows/test.yml)
-
 Keep every deployed repo converging to its latest push, even when webhooks go missing. A small TypeScript reference (not a production library) for any product that deploys or syncs from customers' GitHub repos: docs platforms, static sites, CI, previews.
 
 Webhooks are a notification, not a guarantee. GitHub has outages, your receiver has deploys, and rate limits bite exactly when traffic is high. The usual workaround is "redeploy manually from the dashboard", which means a customer noticed first.
