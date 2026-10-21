@@ -4,6 +4,21 @@ Keep every deployed repo converging to its latest push, even when webhooks go mi
 
 Webhooks are a notification, not a guarantee. GitHub has outages, your receiver has deploys, and rate limits bite exactly when traffic is high. The usual workaround is "redeploy manually from the dashboard", which means a customer noticed first.
 
+## Try it in two minutes
+
+Node 23.6+; no dependencies, API token or live GitHub account required.
+
+```bash
+git clone https://github.com/volodymyrshk/github-push-reconciler.git
+cd github-push-reconciler
+npm test
+npm run simulate
+```
+
+The simulation compares webhooks alone with webhooks plus reconciliation under missed deliveries and outages. Its figures illustrate a single-process model, not a production benchmark.
+
+**Code review route:** [receiver](src/receiver.ts) → [worker](src/worker.ts) → [reconciler](src/reconciler.ts) → [tests](test). The main design choice: converge to the latest HEAD while deliberately skipping intermediate commits.
+
 This repo shows three pieces that make a deploy pipeline self-healing. Note the guarantee: each repo eventually gets deployed at its **latest** HEAD. Intermediate commits are skipped on purpose. If your workflow must process every commit (audits, per-commit builds), this is the wrong pattern.
 
 1. **Receiver** (`src/receiver.ts`): verifies `X-Hub-Signature-256` over the raw body, de-duplicates on `X-GitHub-Delivery`, marks the repo dirty (bumping a generation counter) and returns 202. It doesn't deploy and doesn't trust the payload's ordering.
